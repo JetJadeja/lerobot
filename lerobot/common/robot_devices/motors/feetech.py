@@ -678,24 +678,27 @@ class FeetechMotorsBus:
         group = scs.GroupSyncRead(self.port_handler, self.packet_handler, addr, bytes)
         for idx in motor_ids:
             group.addParam(idx)
-            print(idx)
+            logging.debug(f"Added motor ID {idx} to direct read group for {data_name}")
 
-        for _ in range(num_retry):
+        for retry_count in range(num_retry):
+            logging.debug(f"Direct read attempt {retry_count+1}/{num_retry} for {data_name}")
             comm = group.txRxPacket()
-            print(comm)
+            logging.debug(f"Communication result: {comm}")
             if comm == scs.COMM_SUCCESS:
+                logging.debug(f"Successfully read {data_name} on attempt {retry_count+1}")
                 break
+            logging.warning(f"Retry {retry_count+1}: Direct read failed with error: {self.packet_handler.getTxRxResult(comm)}")
 
         if comm != scs.COMM_SUCCESS:
-            raise ConnectionError(
-                f"Read failed due to communication error on port {self.port_handler.port_name} for indices {motor_ids}: "
-                f"{self.packet_handler.getTxRxResult(comm)}"
-            )
+            error_msg = f"Read failed due to communication error on port {self.port_handler.port_name} for indices {motor_ids}: {self.packet_handler.getTxRxResult(comm)}"
+            logging.error(error_msg)
+            raise ConnectionError(error_msg)
 
         values = []
         for idx in motor_ids:
             value = group.getData(idx, addr, bytes)
             values.append(value)
+            logging.debug(f"Read value {value} from motor ID {idx}")
 
         if return_list:
             return values
@@ -728,11 +731,13 @@ class FeetechMotorsBus:
             motor_ids.append(motor_idx)
             models.append(model)
 
+        logging.debug(f"Reading {data_name} from motors: {list(zip(motor_names, motor_ids, strict=False))}")
+
         assert_same_address(self.model_ctrl_table, models, data_name)
         addr, bytes = self.model_ctrl_table[model][data_name]
         group_key = get_group_sync_key(data_name, motor_names)
 
-        if data_name not in self.group_readers:
+        if group_key not in self.group_readers:
             # Very Important to flush the buffer!
             self.port_handler.ser.reset_output_buffer()
             self.port_handler.ser.reset_input_buffer()
@@ -743,22 +748,60 @@ class FeetechMotorsBus:
             )
             for idx in motor_ids:
                 self.group_readers[group_key].addParam(idx)
+                logging.debug(f"Added motor ID {idx} to group reader for {group_key}")
 
-        for _ in range(NUM_READ_RETRY):
+        consecutive_failures = 0
+        for retry_count in range(NUM_READ_RETRY):
+            logging.debug(f"Attempt {retry_count+1}/{NUM_READ_RETRY} to read from {group_key}")
             comm = self.group_readers[group_key].txRxPacket()
             if comm == scs.COMM_SUCCESS:
+                logging.debug(f"Successfully read from {group_key} on attempt {retry_count+1}")
                 break
+            
+            consecutive_failures += 1
+            logging.warning(f"Retry {retry_count+1}: Read failed with error: {self.packet_handler.getTxRxResult(comm)}")
+            
+            # After a few consecutive failures, try resetting the reader group
+            if consecutive_failures == 3:
+                logging.warning(f"Three consecutive failures. Resetting reader for {group_key}")
+                self.reset_readers(group_key)
+                
+                # Recreate the reader group
+                self.group_readers[group_key] = scs.GroupSyncRead(
+                    self.port_handler, self.packet_handler, addr, bytes
+                )
+                for idx in motor_ids:
+                    self.group_readers[group_key].addParam(idx)
+                logging.info(f"Recreated reader group for {group_key}")
+                consecutive_failures = 0
+                
+                # Give the bus a moment to recover
+                time.sleep(0.1)
+            
+            # On last retry, try to identify problematic motors
+            if retry_count == NUM_READ_RETRY - 1:
+                logging.warning("Attempting to identify problematic motor ID...")
+                for name, idx in zip(motor_names, motor_ids, strict=False):
+                    try:
+                        # Try to read from each motor individually to see which one fails
+                        single_result = self.packet_handler.ping(self.port_handler, idx)
+                        if single_result != scs.COMM_SUCCESS:
+                            logging.error(f"Motor {name} (ID: {idx}) is not responding: {self.packet_handler.getTxRxResult(single_result)}")
+                        else:
+                            logging.info(f"Motor {name} (ID: {idx}) is responding to ping")
+                    except Exception as e:
+                        logging.error(f"Error pinging motor {name} (ID: {idx}): {e}")
 
         if comm != scs.COMM_SUCCESS:
-            raise ConnectionError(
-                f"Read failed due to communication error on port {self.port} for group_key {group_key}: "
-                f"{self.packet_handler.getTxRxResult(comm)}"
-            )
+            error_msg = f"Read failed due to communication error on port {self.port} for group_key {group_key}: {self.packet_handler.getTxRxResult(comm)}"
+            logging.error(error_msg)
+            raise ConnectionError(error_msg)
 
         values = []
         for idx in motor_ids:
             value = self.group_readers[group_key].getData(idx, addr, bytes)
             values.append(value)
+            logging.debug(f"Read value {value} from motor ID {idx}")
 
         values = np.array(values)
 
@@ -894,6 +937,43 @@ class FeetechMotorsBus:
         self.group_readers = {}
         self.group_writers = {}
         self.is_connected = False
+
+    def reset_readers(self, group_key=None):
+        """Reset group readers to recover from communication issues.
+        
+        Args:
+            group_key: Optional key of the specific group reader to reset.
+                      If None, reset all group readers.
+        """
+        if not self.is_connected:
+            raise RobotDeviceNotConnectedError(
+                f"FeetechMotorsBus({self.port}) is not connected. You need to run `motors_bus.connect()`."
+            )
+        
+        logging.warning(f"Resetting {'all readers' if group_key is None else f'reader for {group_key}'}")
+        
+        if self.mock:
+            import tests.motors.mock_scservo_sdk as scs
+        else:
+            import scservo_sdk as scs
+            
+        # Reset the serial buffers first
+        self.port_handler.ser.reset_output_buffer()
+        self.port_handler.ser.reset_input_buffer()
+        
+        # Wait a bit for buffers to clear
+        time.sleep(0.05)
+
+        if group_key is None:
+            # Reset all readers
+            self.group_readers = {}
+        else:
+            # Reset only the specified reader if it exists
+            if group_key in self.group_readers:
+                del self.group_readers[group_key]
+        
+        logging.info(f"Successfully reset {'all readers' if group_key is None else f'reader for {group_key}'}")
+        return True
 
     def __del__(self):
         if getattr(self, "is_connected", False):
