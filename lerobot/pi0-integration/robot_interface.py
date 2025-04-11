@@ -34,17 +34,18 @@ def process_images(images, camera_name, default_shape=(224, 224, 3)):
     return processed_image
 
 
-def capture_robot_data(robot, display_function=None):
+def capture_robot_data(robot, display_function=None, prompt="Pick up the duck"):
     """Capture and process data from the robot.
     
     Args:
         robot: The robot instance
         display_function: Optional function to display camera feeds
+        prompt: Text prompt for the Pi0 model
     
     Returns:
         observation: The observation dictionary for Pi0
     """
-    print("Capturing robot data...")
+    print(f"Capturing robot data with prompt: '{prompt}'")
     observation_dict = robot.capture_observation()
     
     # Extract joint positions (comes as a torch tensor)
@@ -89,7 +90,7 @@ def capture_robot_data(robot, display_function=None):
         "observation/gripper_velocity": np.zeros_like(gripper_position),
         
         # Prompt
-        "prompt": "Pick up the duck"
+        "prompt": prompt
     }
     
     return observation 

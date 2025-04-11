@@ -35,6 +35,10 @@ def parse_args():
     parser.add_argument('--port', type=int, default=9000,
                         help='Pi0 server port (default: 9000)')
     
+    # Prompt for Pi0 model
+    parser.add_argument('--prompt', type=str, default='Pick up the duck',
+                        help='Prompt for the Pi0 model (default: "Pick up the duck")')
+    
     return parser.parse_args()
 
 
@@ -49,7 +53,7 @@ def main(args):
         robot = initialize_robot()
         
         # Capture robot data with camera display enabled
-        observation = capture_robot_data(robot, display_function=display_camera_feeds)
+        observation = capture_robot_data(robot, display_function=display_camera_feeds, prompt=args.prompt)
         
         # Send to Pi0 model
         response = send_to_pi0(client, observation)
@@ -81,7 +85,7 @@ def trajectory_mode(args):
         
         while args.num_trajectories == -1 or trajectory_count < args.num_trajectories:
             # Capture robot data with camera display enabled
-            observation = capture_robot_data(robot, display_function=display_camera_feeds)
+            observation = capture_robot_data(robot, display_function=display_camera_feeds, prompt=args.prompt)
             
             # Send to Pi0 model
             response = send_to_pi0(client, observation)
@@ -123,7 +127,7 @@ def continuous_control_mode(args):
             trajectory_start = time.time()
             
             # Capture robot data
-            observation = capture_robot_data(robot, display_function=display_camera_feeds)
+            observation = capture_robot_data(robot, display_function=display_camera_feeds, prompt=args.prompt)
             
             # Send to Pi0 and apply full trajectory
             response = send_to_pi0(client, observation)
@@ -161,7 +165,7 @@ def continuous_camera_mode(args):
         print("Starting continuous camera display mode. Press 'q' in camera window or Ctrl+C to exit.")
         while True:
             # Capture and display robot data without Pi0 inference
-            capture_robot_data(robot, display_function=display_camera_feeds)
+            capture_robot_data(robot, display_function=display_camera_feeds, prompt=args.prompt)
             
             # Short delay to control frame rate
             time.sleep(0.1)
@@ -183,7 +187,7 @@ if __name__ == "__main__":
     # Parse command-line arguments
     args = parse_args()
     
-    print(f"Running in {args.mode} mode")
+    print(f"Running in {args.mode} mode with prompt: '{args.prompt}'")
     
     # Run the appropriate mode based on the command-line argument
     if args.mode == 'trajectory':

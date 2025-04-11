@@ -2,6 +2,30 @@ import numpy as np
 import time
 
 
+def map_pi0_to_so100_actions(pi0_action):
+    """Map Pi0 actions to SO100 robot joint space.
+    
+    Args:
+        pi0_action: Raw action from Pi0 model
+        
+    Returns:
+        numpy.ndarray: 6-dimensional action vector for SO100 robot
+    """
+    # Extract the 6 joint positions (including 5 arm joints + gripper)
+    # First 5 dimensions are arm joints
+    arm_joints = pi0_action[:5]
+    
+    # The gripper control is typically in dimension 6 (index 6)
+    gripper = pi0_action[6] if len(pi0_action) > 6 else pi0_action[5]  # Fallback if dimensions don't match
+    
+    # Combine into a 6-dimensional vector
+    mapped_action = np.zeros(6)
+    mapped_action[:5] = arm_joints
+    mapped_action[5] = gripper
+    
+    return mapped_action
+
+
 def apply_single_action(robot, action_step, num_motors=None):
     """Apply a single action step to the robot.
     
@@ -23,15 +47,10 @@ def apply_single_action(robot, action_step, num_motors=None):
         print("No motors found in follower arm")
         return False
     
-    # If the action has more values than motors, truncate to the right size
-    if len(action_step) > num_motors:
-        print(f"Truncating action from {len(action_step)} to {num_motors} values")
-        positions = action_step[:num_motors]
-    else:
-        positions = action_step
-    
-    # Convert to numpy array
-    positions_array = np.array(positions)
+    # Use the improved mapping function instead of simple truncation
+    print(f"Raw action values: {action_step}")
+    positions_array = map_pi0_to_so100_actions(action_step)
+    print(f"Mapped to SO100: {positions_array}")
     
     # Send to each follower arm
     for name in robot.follower_arms:
