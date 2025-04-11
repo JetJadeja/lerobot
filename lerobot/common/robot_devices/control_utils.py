@@ -267,8 +267,7 @@ def control_loop(
         if display_cameras and not is_headless():
             image_keys = [key for key in observation if "image" in key]
             for key in image_keys:
-                if("phone" not in key):
-                    cv2.imshow(key, cv2.rotate(cv2.cvtColor(observation[key].numpy(), cv2.COLOR_RGB2BGR), cv2.ROTATE_90_COUNTERCLOCKWISE))
+                cv2.imshow(key, cv2.rotate(cv2.cvtColor(observation[key].numpy(), cv2.COLOR_RGB2BGR), cv2.ROTATE_90_COUNTERCLOCKWISE))
             cv2.waitKey(1)
 
         if fps is not None:
