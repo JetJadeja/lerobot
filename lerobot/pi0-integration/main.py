@@ -1,4 +1,5 @@
 import time
+import argparse
 
 # Import modules from our own files
 from robot_interface import initialize_robot, capture_robot_data
@@ -7,10 +8,40 @@ from pi0_client import create_pi0_client, send_to_pi0
 from motor_control import apply_robot_action
 
 
-def main():
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description='SO100 Robot Control with Pi0 Model')
+    
+    # Mode selection
+    parser.add_argument('--mode', type=str, default='single',
+                        choices=['single', 'trajectory', 'continuous', 'camera'],
+                        help='Operation mode (default: single)')
+    
+    # Parameters for trajectory mode
+    parser.add_argument('--num-trajectories', type=int, default=3,
+                        help='Number of trajectories to execute in trajectory mode (default: 3, -1 for infinite)')
+    
+    # Parameters for continuous mode
+    parser.add_argument('--hz', type=float, default=0.2,
+                        help='Frequency in Hz for continuous mode trajectory requests (default: 0.2)')
+    
+    # Control frequency for trajectory execution
+    parser.add_argument('--control-hz', type=float, default=20,
+                        help='Control frequency in Hz for trajectory execution (default: 20)')
+    
+    # Server connection
+    parser.add_argument('--host', type=str, default='localhost',
+                        help='Pi0 server host (default: localhost)')
+    parser.add_argument('--port', type=int, default=9000,
+                        help='Pi0 server port (default: 9000)')
+    
+    return parser.parse_args()
+
+
+def main(args):
     """Main function to run the robot-Pi0 integration."""
     # Connect to Pi0 model
-    client = create_pi0_client(host="localhost", port=9000)
+    client = create_pi0_client(host=args.host, port=args.port)
     
     robot = None
     try:
@@ -24,7 +55,7 @@ def main():
         response = send_to_pi0(client, observation)
         
         # Apply action to robot (executes full trajectory)
-        apply_robot_action(robot, response, hz=20)
+        apply_robot_action(robot, response, hz=args.control_hz)
         
     finally:
         # Close any open windows
@@ -37,13 +68,9 @@ def main():
             print("Robot disconnected")
 
 
-def trajectory_mode(num_trajectories=1):
-    """Run a specified number of trajectories with user confirmation between each.
-    
-    Args:
-        num_trajectories: Number of trajectories to execute, -1 for infinite
-    """
-    client = create_pi0_client(host="localhost", port=9000)
+def trajectory_mode(args):
+    """Run a specified number of trajectories with user confirmation between each."""
+    client = create_pi0_client(host=args.host, port=args.port)
     
     robot = None
     try:
@@ -52,7 +79,7 @@ def trajectory_mode(num_trajectories=1):
         
         trajectory_count = 0
         
-        while num_trajectories == -1 or trajectory_count < num_trajectories:
+        while args.num_trajectories == -1 or trajectory_count < args.num_trajectories:
             # Capture robot data with camera display enabled
             observation = capture_robot_data(robot, display_function=display_camera_feeds)
             
@@ -60,12 +87,12 @@ def trajectory_mode(num_trajectories=1):
             response = send_to_pi0(client, observation)
             
             # Apply full trajectory to robot
-            apply_robot_action(robot, response, hz=20)
+            apply_robot_action(robot, response, hz=args.control_hz)
             
             trajectory_count += 1
             
             # If we're not at the limit, ask for confirmation to continue
-            if num_trajectories == -1 or trajectory_count < num_trajectories:
+            if args.num_trajectories == -1 or trajectory_count < args.num_trajectories:
                 choice = input("\nExecute another trajectory? (y/n): ")
                 if choice.lower() != 'y':
                     break
@@ -81,22 +108,16 @@ def trajectory_mode(num_trajectories=1):
             print("Robot disconnected")
 
 
-def continuous_control_mode(hz=5):
-    """Run in continuous mode to control the robot using Pi0 model.
-    
-    Gets a new trajectory after each full trajectory execution.
-    
-    Args:
-        hz: Frequency (Hz) for checking if we should get a new trajectory
-    """
-    client = create_pi0_client(host="localhost", port=9000)
+def continuous_control_mode(args):
+    """Run in continuous mode to control the robot using Pi0 model."""
+    client = create_pi0_client(host=args.host, port=args.port)
     
     robot = None
     try:
         # Initialize robot
         robot = initialize_robot()
         
-        print("Starting continuous control mode. Press Ctrl+C to exit.")
+        print(f"Starting continuous control mode at {args.hz}Hz. Press Ctrl+C to exit.")
         
         while True:
             trajectory_start = time.time()
@@ -106,11 +127,11 @@ def continuous_control_mode(hz=5):
             
             # Send to Pi0 and apply full trajectory
             response = send_to_pi0(client, observation)
-            apply_robot_action(robot, response, hz=20)
+            apply_robot_action(robot, response, hz=args.control_hz)
             
             # Calculate time to wait before next trajectory (to maintain desired frequency)
             elapsed = time.time() - trajectory_start
-            cycle_time = 1.0 / hz  # Time per cycle in seconds
+            cycle_time = 1.0 / args.hz  # Time per cycle in seconds
             sleep_time = max(0, cycle_time - elapsed)
             
             if sleep_time > 0:
@@ -130,7 +151,7 @@ def continuous_control_mode(hz=5):
             print("Robot disconnected")
 
 
-def continuous_camera_mode():
+def continuous_camera_mode(args):
     """Run in continuous mode to display camera feeds in real-time without Pi0 control."""
     robot = None
     try:
@@ -159,23 +180,18 @@ def continuous_camera_mode():
 
 
 if __name__ == "__main__":
-    # Choose mode:
-    # 'single'     - Execute one trajectory and stop
-    # 'trajectory' - Execute specified number of trajectories with user confirmation
-    # 'continuous' - Continuously execute trajectories with fixed timing
-    # 'camera'     - Just display camera feeds without Pi0 control
+    # Parse command-line arguments
+    args = parse_args()
     
-    mode = 'single'
+    print(f"Running in {args.mode} mode")
     
-    if mode == 'trajectory':
-        # Execute 3 trajectories with user confirmation between each
-        # Set to -1 for unlimited trajectories
-        trajectory_mode(num_trajectories=3)
-    elif mode == 'continuous':
-        # Continuously execute trajectories at 0.2Hz (one every 5 seconds)
-        continuous_control_mode(hz=0.2)
-    elif mode == 'camera':
-        continuous_camera_mode()
+    # Run the appropriate mode based on the command-line argument
+    if args.mode == 'trajectory':
+        trajectory_mode(args)
+    elif args.mode == 'continuous':
+        continuous_control_mode(args)
+    elif args.mode == 'camera':
+        continuous_camera_mode(args)
     else:
         # Default: Execute one trajectory and stop
-        main()
+        main(args)
