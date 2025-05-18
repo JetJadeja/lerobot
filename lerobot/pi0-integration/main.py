@@ -7,6 +7,9 @@ from camera_utils import display_camera_feeds, cleanup_display
 from pi0_client import create_pi0_client, send_to_pi0
 from motor_control import apply_robot_action
 
+# Import OpenCV and NumPy
+import cv2
+import numpy as np
 
 def parse_args():
     """Parse command-line arguments."""
@@ -41,8 +44,8 @@ def parse_args():
     
     return parser.parse_args()
 
-
-def main(args):
+# Run a single trajectory
+def single_trajectory_mode(args):
     """Main function to run the robot-Pi0 integration."""
     # Connect to Pi0 model
     client = create_pi0_client(host=args.host, port=args.port)
@@ -72,6 +75,7 @@ def main(args):
             print("Robot disconnected")
 
 
+# Run a specified number of trajectories with user confirmation between each
 def trajectory_mode(args):
     """Run a specified number of trajectories with user confirmation between each."""
     client = create_pi0_client(host=args.host, port=args.port)
@@ -112,6 +116,7 @@ def trajectory_mode(args):
             print("Robot disconnected")
 
 
+# Run in continuous mode to control the robot using Pi0 model
 def continuous_control_mode(args):
     """Run in continuous mode to control the robot using Pi0 model."""
     client = create_pi0_client(host=args.host, port=args.port)
@@ -155,25 +160,87 @@ def continuous_control_mode(args):
             print("Robot disconnected")
 
 
-def continuous_camera_mode(args):
-    """Run in continuous mode to display camera feeds in real-time without Pi0 control."""
+# Camera test mode to display all available cameras with IDs
+def camera_test_mode(args):
+    """Display all available cameras with their names and IDs."""
+
     robot = None
     try:
         # Initialize robot
         robot = initialize_robot()
+        print("Accessing all available cameras...")
         
-        print("Starting continuous camera display mode. Press 'q' in camera window or Ctrl+C to exit.")
+        # Keep displaying camera feeds until user quits
         while True:
-            # Capture and display robot data without Pi0 inference
-            capture_robot_data(robot, display_function=display_camera_feeds, prompt=args.prompt)
+            # Capture observation to get camera images
+            observation_dict = robot.capture_observation()
             
-            # Short delay to control frame rate
-            time.sleep(0.1)
+            # Get all camera images
+            images = {}
+            camera_ids = {}
             
-    except KeyboardInterrupt:
-        print("Continuous camera mode interrupted by user")
+            # Get camera ID mapping
+            for i, cam_name in enumerate(robot.cameras):
+                camera_ids[cam_name] = i
+                cam_key = f"observation.images.{cam_name}"
+                if cam_key in observation_dict:
+                    images[cam_name] = observation_dict[cam_key].numpy()
+            
+            if not images:
+                print("No camera feeds available")
+                break
+                
+            # Process and display each camera feed
+            displays = []
+            for cam_name, cam_id in camera_ids.items():
+                if cam_name in images and images[cam_name] is not None:
+                    # Ensure image is in correct format
+                    img = images[cam_name]
+                    if img.ndim == 2:  # Convert grayscale to RGB if needed
+                        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+                    
+                    # Add caption with name and ID
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    caption = f"Camera: {cam_name} (ID: {cam_id})"
+                    cv2.putText(img, caption, (10, 30), font, 0.7, (0, 255, 0), 2)
+                    
+                    # Add to list of displays
+                    displays.append(img)
+            
+            if displays:
+                # Arrange images in a grid
+                if len(displays) == 1:
+                    combined = displays[0]
+                elif len(displays) == 2:
+                    combined = np.hstack(displays)
+                else:
+                    # Create a more complex grid for multiple cameras
+                    rows = []
+                    row = []
+                    for i, img in enumerate(displays):
+                        row.append(img)
+                        if (i + 1) % 2 == 0 or i == len(displays) - 1:
+                            # Create a row with uniform size images
+                            for j in range(len(row)):
+                                if row[j].shape != row[0].shape:
+                                    row[j] = cv2.resize(row[j], (row[0].shape[1], row[0].shape[0]))
+                            rows.append(np.hstack(row))
+                            row = []
+                    combined = np.vstack(rows)
+                
+                # Show the combined image
+                cv2.imshow("All Camera Feeds", combined)
+                
+                # Wait for key press, exit if 'q' is pressed
+                key = cv2.waitKey(1000)
+                if key == ord('q'):
+                    break
+            else:
+                print("No valid camera images to display")
+                break
+    
     finally:
-        # Close any open windows
+        # Clean up
         cleanup_display()
         
         # Ensure robot is disconnected properly
@@ -195,7 +262,6 @@ if __name__ == "__main__":
     elif args.mode == 'continuous':
         continuous_control_mode(args)
     elif args.mode == 'camera':
-        continuous_camera_mode(args)
-    else:
-        # Default: Execute one trajectory and stop
-        main(args)
+        camera_test_mode(args)
+    elif args.mode == 'single':
+        single_trajectory_mode(args)

@@ -1,6 +1,41 @@
 import numpy as np
 import time
 
+# Define denormalization parameters for action outputs - must match normalization in robot_interface.py
+# Assuming the first 5 values correspond to joint positions
+JOINT_ACTION_RANGES = {
+    "min": np.array([-1.0, -1.0, -200.0, -200.0, -10.0]),
+    "max": np.array([1.0, 200.0, 10.0, 10.0, 10.0])
+}
+
+# Assuming the 7th value (index 6) is the gripper control
+GRIPPER_ACTION_RANGES = {
+    "min": np.array([0.0]),
+    "max": np.array([50.0])
+}
+
+
+def denormalize_joint_actions(normalized_actions):
+    """Denormalize joint actions from [-1, 1] to robot's range."""
+    min_vals = JOINT_ACTION_RANGES["min"]
+    max_vals = JOINT_ACTION_RANGES["max"]
+    
+    # Convert from [-1, 1] to actual range
+    denormalized = 0.5 * (normalized_actions + 1.0) * (max_vals - min_vals) + min_vals
+    
+    return denormalized
+
+
+def denormalize_gripper_action(normalized_action):
+    """Denormalize gripper action from [-1, 1] to robot's range."""
+    min_val = GRIPPER_ACTION_RANGES["min"][0]
+    max_val = GRIPPER_ACTION_RANGES["max"][0]
+    
+    # Convert from [-1, 1] to actual range
+    denormalized = 0.5 * (normalized_action + 1.0) * (max_val - min_val) + min_val
+    
+    return denormalized
+
 
 def map_pi0_to_so100_actions(pi0_action):
     """Map Pi0 actions to SO100 robot joint space.
@@ -11,17 +46,27 @@ def map_pi0_to_so100_actions(pi0_action):
     Returns:
         numpy.ndarray: 6-dimensional action vector for SO100 robot
     """
-    # Extract the 6 joint positions (including 5 arm joints + gripper)
-    # First 5 dimensions are arm joints
-    arm_joints = pi0_action[:5]
+    # Print the raw normalized action from Pi0
+    print(f"Raw normalized action from Pi0: {pi0_action}")
     
-    # The gripper control is typically in dimension 6 (index 6)
-    gripper = pi0_action[6] if len(pi0_action) > 6 else pi0_action[5]  # Fallback if dimensions don't match
+    # Extract the normalized joint actions (first 5 dimensions)
+    normalized_arm_joints = pi0_action[:5]
+    
+    # Extract the normalized gripper control 
+    normalized_gripper = pi0_action[6] if len(pi0_action) > 6 else pi0_action[5]
+    
+    # Denormalize values to the robot's actual range
+    denormalized_arm_joints = denormalize_joint_actions(normalized_arm_joints)
+    denormalized_gripper = denormalize_gripper_action(normalized_gripper)
+    
+    # Print the denormalized values
+    print(f"Denormalized arm joints: {denormalized_arm_joints}")
+    print(f"Denormalized gripper: {denormalized_gripper}")
     
     # Combine into a 6-dimensional vector
     mapped_action = np.zeros(6)
-    mapped_action[:5] = arm_joints
-    mapped_action[5] = gripper
+    mapped_action[:5] = denormalized_arm_joints
+    mapped_action[5] = denormalized_gripper
     
     return mapped_action
 

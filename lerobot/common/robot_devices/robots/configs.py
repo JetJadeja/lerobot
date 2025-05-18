@@ -443,8 +443,8 @@ class So100RobotConfig(ManipulatorRobotConfig):
     leader_arms: dict[str, MotorsBusConfig] = field(
         default_factory=lambda: {
             "main": FeetechMotorsBusConfig(
-                # alternative port: port="/dev/tty.usbmodem58FA1024791",
-                port="/dev/tty.usbmodem59591124861",
+                port="/dev/tty.usbmodem58FA1024791",
+                # port="/dev/tty.usbmodem59591124861",
                 motors={
                     # name: (index, model)
                     "shoulder_pan": [1, "sts3215"],
@@ -461,7 +461,7 @@ class So100RobotConfig(ManipulatorRobotConfig):
     follower_arms: dict[str, MotorsBusConfig] = field(
         default_factory=lambda: {
             "main": FeetechMotorsBusConfig(
-                # alternative port: port="/dev/tty.usbmodem58FA1026741",
+                # port="/dev/tty.usbmodem58FA1026741",
                 port="/dev/tty.usbmodem58FA0968581",
                 motors={
                     # name: (index, model)
